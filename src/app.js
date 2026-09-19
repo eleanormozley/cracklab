@@ -41,6 +41,7 @@
 	];
 	var IDLE_HTML = '<span class="idle-prompt">Start typing a password…</span>';
 	var PLACEHOLDER_HTML = '<span class="cand cand-try">••••••••</span>';
+	var MAX_LEN = 60; // hard cap — extra characters are silently ignored
 
 	var DEV = new URLSearchParams(location.search).has("dev");
 	var KIOSK = !DEV;
@@ -313,11 +314,14 @@
 				e.preventDefault();
 			} else if (document.activeElement !== els.input) {
 				els.input.focus();
-				els.input.value += k;
+				if (els.input.value.length < MAX_LEN) els.input.value += k;
 				updateStrength();
 				e.preventDefault();
+			} else if (els.input.value.length >= MAX_LEN) {
+				// editing + focused, but already at the cap -> swallow silently
+				e.preventDefault();
 			}
-			// else: editing + focused -> let the browser type it (input event updates strength)
+			// else: editing + focused, under cap -> let the browser type it (input event updates strength)
 		}
 	}
 
