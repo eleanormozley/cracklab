@@ -1,0 +1,11 @@
+{
+	"name": "cracklab",
+	"version": "0.1.0",
+	"private": true,
+	"description": "An interactive, educational password-cracking simulation.",
+	"scripts": {
+		"start": "npx --yes live-server --no-browser --port=8080 .",
+		"open": "npx --yes live-server --port=8080 ."
+	},
+	"license": "CC0-1.0"
+}

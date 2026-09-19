@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>CrackLab</title>
+		<link rel="stylesheet" href="styles.css" />
+	</head>
+	<body>
+		<main class="wrap">
+			<header class="topbar">
+				<div class="brand">
+					<span class="logo">CRACK<b>LAB</b></span>
+					<span class="tag"><!-- // cyber security society --></span>
+				</div>
+				<!-- <span class="badge-safe">● educational simulation · offline</span> -->
+			</header>
+
+			<p class="intro">
+				Type a password everyone can see (<strong>not a real one!</strong>) and
+				watch it get taken apart: sweeping common password lists, latching onto
+				dictionary words, bolting on the obvious numbers, and brute-forcing
+				whatever's left. It's slowed way down so you can watch the work. In
+				reality, a hacker does all this <strong>instantly</strong>.
+			</p>
+
+			<section class="panel">
+				<div class="controls">
+					<div class="field">
+						<label for="password-input">Target password</label>
+						<input
+							id="password-input"
+							type="text"
+							autocomplete="off"
+							autocapitalize="off"
+							autocorrect="off"
+							spellcheck="false"
+							placeholder="try: hunter22"
+						/>
+					</div>
+					<button id="crack-btn" type="button">CRACK IT</button>
+				</div>
+
+				<div class="strength">
+					<div class="strength-bar">
+						<div id="strength-fill" class="strength-fill"></div>
+					</div>
+					<div id="strength-text" class="strength-text"></div>
+				</div>
+
+				<div class="presets-wrap">
+					<div class="lead">// try one of these</div>
+					<div id="presets"></div>
+				</div>
+			</section>
+
+			<section id="stage" class="panel">
+				<div class="hud">
+					<div class="hud-item">
+						<div class="hud-k"><span class="hud-dot"></span>strategy</div>
+						<div id="strategy" class="hud-v"></div>
+					</div>
+					<div class="hud-item">
+						<div class="hud-k">guesses tried</div>
+						<div id="guesses" class="hud-v">0</div>
+					</div>
+					<div class="hud-item">
+						<div class="hud-k">rate</div>
+						<div id="rate" class="hud-v">0 /s</div>
+					</div>
+				</div>
+
+				<div class="stage-main">
+					<div id="candidate"><span class="cand cand-try">••••••••</span></div>
+					<div id="stage-visual"></div>
+				</div>
+
+				<div id="feed"></div>
+			</section>
+
+			<section id="verdict" class="verdict"></section>
+		</main>
+
+		<script src="src/wordlist.js"></script>
+		<script src="src/cracker.js"></script>
+		<script src="src/animator.js"></script>
+		<script src="src/app.js"></script>
+	</body>
+</html>
