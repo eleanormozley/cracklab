@@ -62,9 +62,182 @@
 		return { size: size || 1, kinds: kinds };
 	}
 
+	function log2(n) {
+		return Math.log(n) / Math.LN2;
+	}
+
+	function kindCount(kinds) {
+		return (
+			(kinds.lower ? 1 : 0) +
+			(kinds.upper ? 1 : 0) +
+			(kinds.digit ? 1 : 0) +
+			(kinds.symbol ? 1 : 0)
+		);
+	}
+
+	// Naive keyspace entropy — assumes every character is independently random. Kept only as a
+	// ceiling; realistic strength comes from strengthBits()/analyseUnknown() below, which
+	// discount the ways real passwords are NOT random.
 	function entropyBits(input) {
 		var cs = charsetForString(input);
-		return input.length * (Math.log(cs.size) / Math.log(2));
+		return input.length * log2(cs.size);
+	}
+
+	// Short function words are the giveaway that a long string is a *sentence* (predictable),
+	// not a set of unrelated words (a strong passphrase). Also used to segment jammed phrases.
+	// prettier-ignore
+	var FUNCTION_WORDS = [
+    "the","and","for","are","but","not","you","all","any","can","had","her","was","one",
+    "our","out","day","get","has","him","his","how","man","new","now","old","see","two",
+    "way","who","boy","did","its","let","put","say","she","too","use","that","this","with",
+    "have","from","they","will","would","there","their","what","about","which","when","make",
+    "like","time","just","know","take","into","your","some","them","then","than","look",
+    "only","come","over","also","back","after","want","because","going","password","forever",
+    "guesser","am","an","as","at","be","by","do","go","he","if","in","is","it","me","my","no",
+    "of","on","or","so","to","up","us","we"
+  ];
+
+	var WORD_SET = null,
+		FUNC_SET = null,
+		MAX_WORD = 15;
+	function buildWordSets() {
+		if (WORD_SET) return;
+		WORD_SET = Object.create(null);
+		FUNC_SET = Object.create(null);
+		var i, w;
+		for (i = 0; i < D.BASE_WORDS.length; i++) {
+			w = D.BASE_WORDS[i];
+			if (w.length >= 2) WORD_SET[w] = 1;
+		}
+		for (i = 0; i < FUNCTION_WORDS.length; i++) {
+			w = FUNCTION_WORDS[i];
+			WORD_SET[w] = 1;
+			FUNC_SET[w] = 1;
+		}
+	}
+
+	// Greedy longest-match segmentation of a lowercase string into known words. Reports how much
+	// of it is dictionary words, how many words, and whether any is a function word (=> sentence).
+	function segment(s) {
+		buildWordSets();
+		var i = 0,
+			n = s.length,
+			words = 0,
+			covered = 0,
+			hasFn = false;
+		while (i < n) {
+			var matched = 0,
+				mw = null;
+			var maxL = Math.min(MAX_WORD, n - i);
+			for (var L = maxL; L >= 1; L--) {
+				if (L === 1) {
+					if (s[i] === "a" || s[i] === "i") {
+						matched = 1;
+						mw = s[i];
+					}
+					continue;
+				}
+				var sub = s.substr(i, L);
+				if (WORD_SET[sub]) {
+					matched = L;
+					mw = sub;
+					break;
+				}
+			}
+			if (matched) {
+				words++;
+				covered += matched;
+				if (FUNC_SET[mw]) hasFn = true;
+				i += matched;
+			} else {
+				i++;
+			}
+		}
+		return {
+			words: words,
+			coverage: n ? covered / n : 0,
+			hasFunctionWord: hasFn,
+		};
+	}
+
+	var PHRASE_WORD_BITS = 4.5; // a word inside a human sentence is very predictable
+
+	// Realistic strength for a password with no single dictionary base word: discount sequences
+	// (abc, 12345, qwerty runs), repeats, and natural-language sentences, none of which are the
+	// "random keyspace" the naive model assumes. Returns { bits, guesses, reason }.
+	function analyseUnknown(input, cs) {
+		var perChar = log2(cs.size);
+
+		// Effective length: a char that merely continues a run/sequence carries little entropy.
+		var units = 0;
+		for (var i = 0; i < input.length; i++) {
+			if (i === 0) {
+				units += 1;
+				continue;
+			}
+			var d = input.charCodeAt(i) - input.charCodeAt(i - 1);
+			if (d === 0)
+				units += 0.12; // repeated character
+			else if (d === 1 || d === -1)
+				units += 0.18; // ascending / descending sequence
+			else units += 1; // genuinely novel
+		}
+		var patBits = units * perChar;
+		var seqHeavy = input.length >= 6 && units <= input.length * 0.55;
+
+		var seg = segment(input.toLowerCase());
+		var isPhrase = seg.words >= 4 && seg.coverage >= 0.8 && seg.hasFunctionWord;
+
+		var bits, reason;
+		if (isPhrase) {
+			bits = Math.min(patBits, seg.words * PHRASE_WORD_BITS);
+			reason = "phrase";
+		} else if (seqHeavy) {
+			bits = patBits;
+			reason = "sequence";
+		} else if (input.length < 8 || kindCount(cs.kinds) <= 1) {
+			bits = patBits;
+			reason = "lowvariety";
+		} else {
+			bits = patBits;
+			reason = "random";
+		}
+
+		var guesses = Math.pow(2, bits) / 2;
+		if (!isFinite(guesses)) guesses = Number.MAX_VALUE;
+		return { bits: bits, guesses: guesses, reason: reason };
+	}
+
+	// Guess-count for a "known word + affixes" password. Mirrors the numbers buildPlan derives
+	// while it assembles the animation stages — factored out so the live meter agrees exactly.
+	function affixGuesses(input, base) {
+		var baseRaw = input.substr(base.at, base.word.length);
+		var prefix = input.substr(0, base.at);
+		var suffix = input.substr(base.at + base.word.length);
+		var g = base.listIndex + 1;
+		if (
+			deleetString(baseRaw.toLowerCase()) === base.word &&
+			baseRaw.toLowerCase() !== base.word
+		)
+			g *= 8; // leet
+		if (/[A-Z]/.test(prefix + baseRaw)) g *= 4; // case
+		if (suffix.length > 0) {
+			var si = D.COMMON_SUFFIXES.indexOf(suffix);
+			g *= si !== -1 ? si + 1 : D.COMMON_SUFFIXES.length + suffix.length * 40;
+		}
+		return g;
+	}
+
+	// Single source of truth for "how guessable is this?", shared by the live meter and (for the
+	// unknown-word path) buildPlan. Returns bits of realistic entropy.
+	function strengthBits(input) {
+		if (!input) return 0;
+		var lower = input.toLowerCase();
+		var ci = D.COMMON_PASSWORDS.indexOf(lower);
+		if (ci !== -1) return log2(2 * (ci + 1));
+		var base = findBase(input);
+		if (base) return log2(2 * affixGuesses(input, base));
+		return analyseUnknown(input, charsetForString(input)).bits;
 	}
 
 	// O(1) lookup: base word -> its first position in the list (also dedupes). Built once.
@@ -74,7 +247,8 @@
 		BASE_INDEX = {};
 		for (var i = 0; i < D.BASE_WORDS.length; i++) {
 			var w = D.BASE_WORDS[i];
-			if (!Object.prototype.hasOwnProperty.call(BASE_INDEX, w)) BASE_INDEX[w] = i;
+			if (!Object.prototype.hasOwnProperty.call(BASE_INDEX, w))
+				BASE_INDEX[w] = i;
 		}
 		return BASE_INDEX;
 	}
@@ -136,16 +310,28 @@
 		return "longer than the age of the universe";
 	}
 
-	function tipFor(crackedBy) {
+	var PRAISE_TIP =
+		"Great instinct! Long and unpredictable is what actually works. A few unrelated words plus a symbol is the sweet spot.";
+
+	// The tip must match the *result*, not just the method — a brute-forced password can still be
+	// trivially weak (a sequence, a sentence, too short), and praising it would teach the wrong thing.
+	function tipFor(crackedBy, reason, tone) {
 		switch (crackedBy) {
 			case "dictionary":
-				return "That's on every insecure-password list on the planet. Hackers try common passwords first.";
+				return "That's on every common password list on the planet. Hackers try common passwords first.";
 			case "leet":
 				return "Swapping o→0 or e→3 fools nobody: hacking tools can reverse it automatically.";
 			case "pattern":
 				return "A word plus a number or a year is the very first pattern hackers try. Length and randomness beat cleverness.";
 			case "brute":
-				return "Great instinct! Long and random is what actually works. Three random words is best.";
+				if (reason === "sequence")
+					return "Sequences like abcdef, 12345 or qwerty are the very first thing a hacker tries. It looks random, but it isn't.";
+				if (reason === "phrase")
+					return "A phrase is far more guessable than it looks, hackers use language and phrase lists. Pick unrelated words, add symbols.";
+				if (tone === "good") return PRAISE_TIP;
+				if (reason === "lowvariety")
+					return "Too short or all one type of character, a hacker runs through this fast. Add length, capitals, numbers and symbols.";
+				return "Good direction, now add length. Several unrelated words plus a number or symbol tips it over.";
 			default:
 				return "Longer + more random = exponentially harder to crack.";
 		}
@@ -164,6 +350,7 @@
 		var input = String(rawInput);
 		var stages = [];
 		var crackedBy = "brute";
+		var reason = null; // refines the brute-force tip (sequence / phrase / lowvariety / random)
 		var realGuesses = 1;
 
 		var lower = input.toLowerCase();
@@ -269,7 +456,9 @@
 					crackedBy = "dictionary";
 				}
 			} else {
-				// No known word: honest brute force across the full keyspace.
+				// No single known word. Estimate realistically — a string can still be highly
+				// guessable (a sequence, a repeat, or a natural-language sentence) even though it
+				// has no clean base word. analyseUnknown() discounts exactly those.
 				var cs = charsetForString(input);
 				var charset = buildCharset(cs.kinds);
 				stages.push({
@@ -281,11 +470,13 @@
 					target: input,
 				});
 				crackedBy = "brute";
-				realGuesses = Math.pow(cs.size, input.length) / 2;
+				var analysis = analyseUnknown(input, cs);
+				realGuesses = analysis.guesses;
+				reason = analysis.reason;
 			}
 		}
 
-		var bits = entropyBits(input);
+		var bits = strengthBits(input);
 		var realSeconds = realGuesses / GUESSES_PER_SEC;
 		var verdict = verdictLabel(realSeconds);
 
@@ -299,7 +490,7 @@
 			realTimeText: formatDuration(realSeconds),
 			verdict: verdict.label,
 			tone: verdict.tone,
-			tip: tipFor(crackedBy),
+			tip: tipFor(crackedBy, reason, verdict.tone),
 		};
 	}
 
@@ -322,6 +513,8 @@
 		buildPlan: buildPlan,
 		formatDuration: formatDuration,
 		entropyBits: entropyBits,
+		strengthBits: strengthBits,
+		verdictLabel: verdictLabel,
 		GUESSES_PER_SEC: GUESSES_PER_SEC,
 		SYMBOLS: SYMBOLS,
 		SPEED: SPEED,

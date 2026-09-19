@@ -73,29 +73,16 @@
 			els.candidate.innerHTML =
 				'<span class="cand cand-try">' + escapeHtml(v) + "</span>";
 		}
-		var bits = C.entropyBits(v);
+		// Derive the meter's label from the SAME time model the crack verdict uses, so the live
+		// hint and the final verdict never disagree.
+		var bits = C.strengthBits(v);
+		var seconds = Math.pow(2, bits) / 2 / C.GUESSES_PER_SEC;
+		var vl = C.verdictLabel(seconds);
 		var pct = Math.max(6, Math.min(100, (bits / 90) * 100));
-		var tone, word;
-		if (bits < 28) {
-			tone = "critical";
-			word = "very weak";
-		} else if (bits < 40) {
-			tone = "warn";
-			word = "weak";
-		} else if (bits < 60) {
-			tone = "warn";
-			word = "fair";
-		} else if (bits < 90) {
-			tone = "good";
-			word = "strong";
-		} else {
-			tone = "good";
-			word = "very strong";
-		}
 		els.strengthFill.style.width = pct + "%";
-		els.strengthFill.className = "strength-fill tone-" + tone;
+		els.strengthFill.className = "strength-fill tone-" + vl.tone;
 		els.strengthText.textContent =
-			word + " · " + Math.round(bits) + " bits of entropy";
+			vl.label.toLowerCase() + " · " + Math.round(bits) + " bits of entropy";
 	}
 
 	// ---- verdict card ----
