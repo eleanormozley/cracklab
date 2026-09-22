@@ -23,7 +23,7 @@
 	//   1    → baseline
 	//   2    → brisk, snappy for walk-up traffic (default)
 	//   4    → very fast, almost instant
-	var SPEED = 2;
+	var SPEED = 1;
 
 	var SYMBOLS = "!@#$%^&*()-_=+[]{};:,.<>?/";
 
